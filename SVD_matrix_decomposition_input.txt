@@ -1,0 +1,6 @@
+3
+Shipment of gold damaged in a fire.
+Delivery of silver arrived in a silver truck.
+Shipment of gold arrived in a truck.
+gold silver truck
+2
