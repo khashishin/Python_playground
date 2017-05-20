@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 from urllib import request
 from bs4 import BeautifulSoup
 import json
@@ -15,8 +17,9 @@ pages_list = ["lincolnreport", "RHobbusJD", "theEagleisRising", "FreedomDailyNew
 number_of_api_tries = 2
 do_print= True
 
-searched_words = ["clinton", "trump"]
-
+def unicode_normalize(text):
+    return text.translate({ 0x2018:0x27, 0x2019:0x27, 0x201C:0x22, 0x201D:0x22,
+                            0xa0:0x20 }).encode('utf-8')
 
 def save_json_to_csv(json_data):
     with open('result.json', 'w') as outfile:
@@ -37,10 +40,9 @@ def request_until_succeed(url):
         except Exception:
             tries_unsuccesfull +=1
             time.sleep(1)
-            #print ("Error for URL {}: {}".format(url, datetime.datetime.now()))
-            print ("Error accessing url query")
-            if tries_unsuccesfull > number_of_api_tries:
-                return False
+            print ("{}: Error for URL {}".format(datetime.datetime.now(), url))
+            # if tries_unsuccesfull > number_of_api_tries:
+            #     return False
     return response.read()
 
 def browse_API(query):
@@ -55,17 +57,19 @@ def browse_API(query):
         data = json.loads(request_until_succeed(url))    
         return data
     except TypeError:
-        #Null
+        #Null result - unsuccessfull request
         return False
 
 def get_posts_and_statistics_json(page_id, access_token, posts_limit):
     '''
     Wykorzystujac zapytanie, korzystamy z metody browse_API z zadanym naszym query, zeby zwrocic wszystkie posty ze strony
-    Zbieramy tez statystyki dot. komentarzy i lajków 
+    Zbieramy tez statystyki dot. komentarzy i lajkow 
     '''
-    fields_searched = "id,message,link,shares,since=1464739200,until=1477872000,comments.limit(0).summary(true),likes.limit(0).summary(true)"
+    # fields_searched = "id,message,link,permalink_url, created_time, type, name, shares, comments.limit(0).summary(true), likes.limit(0).summary(true),since=1464739200,until=1477872000"
+    #fields_searched = "id,message,link,permalink_url,created_time,type,name,shares,comments.limit(1).summary(true), reactions.limit(1).summary(true)"
+    fields_searched = "message,link,created_time,shares,comments.limit(0).summary(true),likes.limit(0).summary(true),since=1464739200,until=1477872000"
     node = "/" + page_id
-    query = "/posts/?fields={}&limit={}".format(fields_searched,posts_limit)
+    query = "/posts/?fields={}".format(fields_searched) #&limit={}
     url = node + query
     #save_json_to_csv(data)
     return browse_API(url)
@@ -76,7 +80,7 @@ site_content_mapping= {"dailysign.al/" : ("div", "class", "tds-content"),
 
 def get_base_from_link(link):
     '''
-    Wybiera główną stronę na podstawie długiego linku np http://www.wyborcza.pl/moj-kot-zjadl-mi-sniadanie i wskazuje na wyborcza.pl, abstrachuje od protokołu
+    Wybiera glowną stronę na podstawie długiego linku np http://www.wyborcza.pl/moj-kot-zjadl-mi-sniadanie i wskazuje na wyborcza.pl, abstrachuje od protokołu
     '''
     link_parts = link.split('/')
     protocol = link_parts[0]
@@ -158,43 +162,179 @@ def get_link_content(link):
         if do_print:print ("webpage " + base_webpage, " not in mapping")
         return ["Null"]
         
- 
+def scrapeFacebookPageFeedStatus(page_id, access_token):
+    with open('facebook_statuses_{}.csv'.format(page_id), 'w') as file:
+        all_posts = []
+        w = csv.writer(file)
+        w.writerow(["content_type","message","link","created_time","shares","comments","likes", "date"])
+        # w.writerow(["site","type_of_message","status_id", "status_message", "link_name", "status_link", "permalink_url", "status_published"
+        # "num_reactions","num_comments", "num_shares", "num_likes", "num_loves", "num_wows", "num_hahas", "num_sads", "num_angrys"])
+        has_next_page = True
+        num_processed = 0   # keep a count on how many we've processed
+        scrape_starttime = datetime.datetime.now()
+
+        print ("Scraping {} Facebook Page: {}".format(page_id, scrape_starttime))
+
+        posts = get_posts_and_statistics_json(page_id, access_token, 100)
+        while has_next_page:
+            try:
+                for status in posts['data']: # Ensure it is a status with the expected metadata
+                    line = processFacebookPageFeedStatus(status,
+                            access_token)
+                    if line != False:
+                        w.writerow(line)
+                        num_processed += 1
+                # if there is no next page, we're done.
+                if 'paging' in posts.keys():
+                    print ("DOING NEXT PAGE")
+                    posts = json.loads(request_until_succeed(
+                                            posts['paging']['next']))
+                else:
+                    has_next_page = False
+            except TypeError:
+                has_next_page = False
+        print ("Done!{} Statuses Processed in {}".format(num_processed, datetime.datetime.now() - scrape_starttime))
+
+def check_if_relevant(content): 
+        #print (prepare_line(content)) # LISTA SLOW W NEWSIE
+        trump = False
+        clinton = False
+        title_words = [word for word in prepare_line(str(content))]
+        if "trump" in title_words or "donald" in title_words:
+            trump = True
+            print ("TRUMP")
+        if "clinton" in title_words or "hilary" in title_words:
+            clinton = True
+            print ("CLINTON")
+        if trump and clinton:
+            return "Trump+Clinton"
+        else:
+            if trump:
+                return "Trump"
+            if clinton:
+                return "Clinton"
+            else:
+                return False
+
+
+def processFacebookPageFeedStatus(status, access_token):
+    # The status is now a Python dictionary, so for top-level items,
+    # we can simply call the key.
+    # Additionally, some items may not always exist,
+    # so must check for existence first
+
+    # status_id = status['id']
+    status_message = '' if 'message' not in status.keys() else unicode_normalize(status['message'])
+    relevant = check_if_relevant(status_message)
+    if relevant:
+        type_of_message = relevant
+        # link_name = '' if 'name' not in status.keys() else unicode_normalize(status['name'])
+        status_link = '' if 'link' not in status.keys() else unicode_normalize(status['link'])
+        # status_permalink_url = '' if 'permalink_url' not in status.keys() else unicode_normalize(status['permalink_url'])
+        # Time needs special care since a) it's in UTC and
+        # b) it's not easy to use in statistical programs.
+        status_published = datetime.datetime.strptime(
+                status['created_time'],'%Y-%m-%dT%H:%M:%S+0000')
+        status_published = status_published + \
+                datetime.timedelta(hours=-5) # EST
+        status_published = status_published.strftime(
+                '%Y-%m-%d %H:%M:%S') # best time format for spreadsheet programs
+
+        # Nested items require chaining dictionary keys.
+
+        num_likes = 0 if 'likes' not in status else \
+                status['likes']['summary']['total_count']
+        num_comments = 0 if 'comments' not in status else \
+                status['comments']['summary']['total_count']
+        num_shares = 0 if 'shares' not in status else status['shares']['count']
+
+        # Counts of each reaction separately; good for sentiment
+        # Only check for reactions if past date of implementation:
+        # http://newsroom.fb.com/news/2016/02/reactions-now-available-globally/
+        # reactions = getReactionsForStatus(status_id, access_token) if \
+        #         status_published > '2016-02-24 00:00:00' else {}
+
+        # num_likes = 0 if 'like' not in reactions else \
+        #         reactions['like']['summary']['total_count']
+        # Special case: Set number of Likes to Number of reactions for pre-reaction
+        # statuses
+        # num_likes = num_reactions if status_published < '2016-02-24 00:00:00' \
+                # else num_likes
+
+        # def get_num_total_reactions(reaction_type, reactions):
+        #     if reaction_type not in reactions:
+        #         return 0
+        #     else:
+        #         return reactions[reaction_type]['summary']['total_count']
+
+        # num_loves = get_num_total_reactions('love', reactions)
+        # num_wows = get_num_total_reactions('wow', reactions)
+        # num_hahas = get_num_total_reactions('haha', reactions)
+        # num_sads = get_num_total_reactions('sad', reactions)
+        # num_angrys = get_num_total_reactions('angry', reactions)
+
+        # Return a tuple of all processed data
+        return (type_of_message, status_message, status_link, status_published, num_shares, num_comments, num_likes,status_published)
+        # return (type_of_message, status_id, status_message, link_name, status_link, status_permalink_url,
+        #         status_published, num_reactions, num_comments, num_shares,
+        #         num_likes, num_loves, num_wows, num_hahas, num_sads, num_angrys)
+    else:
+        return False
+
+def getReactionsForStatus(status_id, access_token):
+
+    # See http://stackoverflow.com/a/37239851 for Reactions parameters
+        # Reactions are only accessable at a single-post endpoint
+
+    base = "https://graph.facebook.com/v2.6"
+    node = "/%s" % status_id
+    reactions = "/?fields=" \
+            "reactions.type(LIKE).limit(0).summary(total_count).as(like)" \
+            ",reactions.type(LOVE).limit(0).summary(total_count).as(love)" \
+            ",reactions.type(WOW).limit(0).summary(total_count).as(wow)" \
+            ",reactions.type(HAHA).limit(0).summary(total_count).as(haha)" \
+            ",reactions.type(SAD).limit(0).summary(total_count).as(sad)" \
+            ",reactions.type(ANGRY).limit(0).summary(total_count).as(angry)"
+    parameters = "&access_token=%s" % access_token
+    url = base + node + reactions + parameters
+
+    # retrieve data
+    data = json.loads(request_until_succeed(url))
+     
+    return data
 
 for page_id in pages_list:
     posts_limit = 100
-    posts = get_posts_and_statistics_json(page_id, access_token, posts_limit)
+    scrapeFacebookPageFeedStatus(page_id, access_token)
     #print (json.dumps(posts, indent=2, sort_keys=True))
 
-    for post in posts["data"]:
-        #print(post["message"]) #wiadomosc
-        #print(post["comments"]["summary"]["total_count"]) #liczba komentarzy
-        #print(post["likes"]["summary"]["total_count"]) #liczba likeow
-        #print(post["shares"]["count"]) #liczba shareow
-        # print (post)
-        # (message, link, num_of_comments, num_of_likes, num_of_shares)
-        # (post["message"], post["link"] post["comments"]["summary"]["total_count"], post["likes"]["summary"]["total_count"], post["shares"]["count"])
-
-        try:
-            content = post["message"]    
-            #print (prepare_line(content)) # LISTA SLOW W NEWSIE
-            title_words = [word for word in prepare_line(content)]
-            
-
-            for word in title_words:
-                if word in searched_words: # TUTAJ sprawdzamy czy post zawiera slowa ktorych szukamy -> hilary/trump
-
-                    if word =="trump":
-                        print ("O trumpie")
-                    if word =="clinton":
-                        print ("O clinton")
-
-                    print ("TAK ZNALAZLEM SUPER LINK O TRUMPIE/CLINTON")
-                    #link = []
-                    #link = re.findall('(?:http|https)(?:\:\/\/)(?:(?:[\w+-.\/]+))', str(content))  #link w tresci posta
-                    link = (post["link"]) # link w poscie (chyba to lepsze)
-                    article_content = get_link_content(link)
-                    # (post["message"], post["link"] post["comments"]["summary"]["total_count"], post["likes"]["summary"]["total_count"], post["shares"]["count"], article_content)
-                    break
-        except KeyError:
-            if do_print:print ("Found post that couldnt process", str(post))
+    # for post in posts["data"]:
+    #     #print(post["message"]) #wiadomosc
+    #     #print(post["comments"]["summary"]["total_count"]) #liczba komentarzy
+    #     #print(post["likes"]["summary"]["total_count"]) #liczba likeow
+    #     #print(post["shares"]["count"]) #liczba shareow
+    #     # print (post)
+    #     # (message, link, num_of_comments, num_of_likes, num_of_shares)
+    #     # (post["message"], post["link"] post["comments"]["summary"]["total_count"], post["likes"]["summary"]["total_count"], post["shares"]["count"])
+    #     trump = False;
+    #     clinton = False;
+    #     try:
+    #         content = post["message"]    
+    #         #print (prepare_line(content)) # LISTA SLOW W NEWSIE
+    #         title_words = [word for word in prepare_line(content)]
+    #         if "trump" in title_words or "donald" in title_words:
+    #             trump = True
+    #             #print ("TRUMP")
+    #         if "clinton" in title_words or "hilary" in title_words:
+    #             clinton = True
+    #             #print ("CLINTON")
+    #         if trump and clinton:
+    #             #print ("OBA")
+    #             continue
+    #         link = (post["link"]) # link w poscie (chyba to lepsze)
+    #             #article_content = get_link_content(link)
+    #             # (post["message"], post["link"] post["comments"]["summary"]["total_count"], post["likes"]["summary"]["total_count"], post["shares"]["count"], article_content)
+        
+    #     except KeyError:
+    #         if do_print:print ("Found post that couldnt process", str(post))
 
