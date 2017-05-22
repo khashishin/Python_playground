@@ -166,7 +166,7 @@ def scrapeFacebookPageFeedStatus(page_id, access_token):
     with open('facebook_statuses_{}.csv'.format(page_id), 'w') as file:
         all_posts = []
         w = csv.writer(file)
-        w.writerow(["content_type","message","link","created_time","shares","comments","likes", "date"])
+        w.writerow(["content_type","message","link","created_time","shares","comments","likes"])
         # w.writerow(["site","type_of_message","status_id", "status_message", "link_name", "status_link", "permalink_url", "status_published"
         # "num_reactions","num_comments", "num_shares", "num_likes", "num_loves", "num_wows", "num_hahas", "num_sads", "num_angrys"])
         has_next_page = True
@@ -274,7 +274,7 @@ def processFacebookPageFeedStatus(status, access_token):
         # num_angrys = get_num_total_reactions('angry', reactions)
 
         # Return a tuple of all processed data
-        return (type_of_message, status_message, status_link, status_published, num_shares, num_comments, num_likes,status_published)
+        return (type_of_message, str(status_message), str(status_link), status_published, num_shares, num_comments, num_likes)
         # return (type_of_message, status_id, status_message, link_name, status_link, status_permalink_url,
         #         status_published, num_reactions, num_comments, num_shares,
         #         num_likes, num_loves, num_wows, num_hahas, num_sads, num_angrys)
