@@ -251,7 +251,7 @@ def processFacebookPageFeedStatus(status, access_token):
         # num_hahas = get_num_total_reactions('haha', reactions)
         # num_sads = get_num_total_reactions('sad', reactions)
         # num_angrys = get_num_total_reactions('angry', reactions)
-        return (type_of_message, delete_unallowed_signs(str(status_message)), str(status_link), status_published, num_shares, num_comments, num_likes)
+        return (type_of_message, str(status_message.decode('utf-8')), str(status_link), status_published, num_shares, num_comments, num_likes)
     else:
         return False
 
@@ -293,6 +293,7 @@ def scrapeFacebookPageFeedStatus(page_id, access_token):
                     relevant_post = processFacebookPageFeedStatus(status,
                             access_token)
                     if relevant_post != False: #False oznacza ze jest to dla nas news nierelewantny
+                        print("writing row")
                         w.writerow(relevant_post) # Zapisuje wszystkie statystyki
                         if do_print: num_processed += 1
                 if 'paging' in posts.keys(): #Jezeli ma wiecej stron
