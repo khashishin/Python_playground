@@ -10,8 +10,8 @@ import time
 from random import choice
 
 #Obsluga aplikacji -> dostep do API FB
-app_id = "1050560361741404"
-app_secret = "2c573ede1a1d80cb5f2752aac94d787e" # DO NOT SHARE WITH ANYONE!
+app_id = ""
+app_secret = "" # DO NOT SHARE WITH ANYONE!
 access_token = app_id + "|" + app_secret
 
 #Podstawowe zmienne
